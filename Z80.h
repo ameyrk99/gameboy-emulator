@@ -1,4 +1,4 @@
-//Margaret Black, 2024
+// Margaret Black, 2024
 
 #define TRUE 1
 #define FALSE 0
@@ -10,31 +10,31 @@ public:
 	int FLAG_I, interrupt_deferred, interrupts;
 	int FLAGS;
 	bool halted;
-	
-	int opcode,value,imm;
-	const char* instruction;
+
+	int opcode, value, imm;
+	const char *instruction;
 	int cycles;
 
-	Z80(unsigned char(*)(int),void(*)(int,unsigned char));
+	Z80(unsigned char (*)(int), void (*)(int, unsigned char));
 	void reset();
 	void doInstruction();
 	void checkForInterrupts();
 	void throwInterrupt(int);
 
 private:
-	int arithmetic(int,bool,bool);
-	int arithmetic16(int,int,bool,bool);
+	int arithmetic(int, bool, bool);
+	int arithmetic16(int, int, bool, bool);
 	void daa();
-	int incrementDecrement(int,bool);
+	int incrementDecrement(int, bool);
 	void logicflags(int);
-	int sr(int,bool);
-	int sl(int,bool);
+	int sr(int, bool);
+	int sl(int, bool);
 	int swap(int);
-	int rrc(int,bool);
-	int rr(int,bool);
-	int rlc(int,bool);
-	int rl(int,bool);
-	void bit(int,int);
+	int rrc(int, bool);
+	int rr(int, bool);
+	int rlc(int, bool);
+	int rl(int, bool);
+	void bit(int, int);
 	void setFlags();
 	void readFlags();
 	void push(int);
@@ -46,6 +46,5 @@ private:
 	void handleInterrupt(int);
 
 	unsigned char (*memory_read)(int);
-	void (*memory_write)(int,unsigned char);
+	void (*memory_write)(int, unsigned char);
 };
-
