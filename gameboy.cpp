@@ -34,8 +34,8 @@ Sets colors on 4 grade palette and reads into Screen
 */
 void readScreen() {
   for (int pixelX = 0; pixelX < SCREEN_W; pixelX++) {
-    for (int ypixel = 0; ypixel < SCREEN_H; ypixel++) {
-      int x = pixelX, y = ypixel;
+    for (int pixelY = 0; pixelY < SCREEN_H; pixelY++) {
+      int x = pixelX, y = pixelY;
 
       // Apply scroll and wrap using bitmask
       x = (x + scrollX) & 255;
@@ -69,8 +69,7 @@ void readScreen() {
       char capturePixel1 = byte1 >> (7 - offsetX) & 1;
       int pixel = capturePixel1 * 2 + capturePixel0;
 
-      // int color = 0;
-      Screen[pixelX][ypixel] = palette[pixel];
+      Screen[pixelX][pixelY] = palette[pixel];
     }
   }
 }
