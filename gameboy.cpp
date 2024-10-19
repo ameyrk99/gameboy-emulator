@@ -47,7 +47,8 @@ int main(int argc, char* argv[]) {
 
   // --------------------------------------------------------------------------
   // Step 1
-  ifstream romFile("testrom.gb", ios::in | ios::binary | ios::ate);
+  ifstream romFile(argv[1], ios::in | ios::binary | ios::ate);
+  // ifstream romFile("opus5.gb", ios::in | ios::binary | ios::ate);
   streampos size = romFile.tellg();
 
   rom = new char[size];
@@ -63,34 +64,70 @@ int main(int argc, char* argv[]) {
   //   z80->PC = 0;
 
   while (!z80->halted) {
+    totalInstructions++;
+
     z80->doInstruction();
-    printf("PC=%x\tA=%d\tB=%d\n", z80->PC, z80->A, z80->B);
+
+    // Check for and handle interrupts
+    if (z80->interrupt_deferred > 0) {
+      z80->interrupt_deferred--;
+      if (z80->interrupt_deferred == 1) {
+        z80->interrupt_deferred = 0;
+        z80->FLAG_I = 1;
+      }
+    }
+    z80->checkForInterrupts();
+
+    // Check screen position and set video mode
+    // GameBoy runs ~61 instructions per row of the screen
+    horizontal = (totalInstructions + 1) % 61;
+    if (line >= 145)
+      gpuMode = V_BLANK;
+    else if (horizontal <= 30)
+      gpuMode = H_BLANK;
+    else if (31 <= horizontal && horizontal <= 40)
+      gpuMode = SPRITE;
+    else
+      gpuMode = VRAM;
+
+    if (horizontal == 0)
+      line++;
+    if (line == 144)
+      z80->throwInterrupt(1);
+    if (line % 154 == cmpLine && videoState & 0x40 != 0)
+      z80->throwInterrupt(2);
+    if (line == 153) {
+      line = 0;
+
+      // Redraw screen
+      renderScreen();
+    }
   }
 
   // --------------------------------------------------------------------------
   // Step 2
-  ifstream vidfile("screendump.txt", ios::in);
+  // ifstream vidfile("screendump.txt", ios::in);
 
-  // Read first 8192 integers into graphics RAM
-  for (int i = 0; i < 8192; i++) {
-    int n;
-    vidfile >> n;
-    graphicsRAM[i] = (unsigned char)n;
-  }
+  // // Read first 8192 integers into graphics RAM
+  // for (int i = 0; i < 8192; i++) {
+  //   int n;
+  //   vidfile >> n;
+  //   graphicsRAM[i] = (unsigned char)n;
+  // }
 
-  // Read rest of the variables
-  vidfile >> tileSet;
-  vidfile >> tileMap;
-  vidfile >> scrollX;
-  vidfile >> scrollY;
-  vidfile >> palette[0];
-  vidfile >> palette[1];
-  vidfile >> palette[2];
-  vidfile >> palette[3];
+  // // Read rest of the variables
+  // vidfile >> tileSet;
+  // vidfile >> tileMap;
+  // vidfile >> scrollX;
+  // vidfile >> scrollY;
+  // vidfile >> palette[0];
+  // vidfile >> palette[1];
+  // vidfile >> palette[2];
+  // vidfile >> palette[3];
 
-  renderScreen();
+  // renderScreen();
 
-  return 0;
+  // return 0;
 }
 
 unsigned char memoryRead(int address) {
