@@ -45,6 +45,7 @@ void setControlByte(unsigned char b);
 void setPalette(unsigned char b);
 unsigned char getVideoState();
 
+void updateEmulator();
 unsigned char memoryRead(int address);
 void memoryWrite(int address, unsigned char value);
 
@@ -109,49 +110,6 @@ class GameBoyScreen : public Gtk::DrawingArea {
   }
 };
 
-void updateEmulator() {
-  totalInstructions++;
-
-  z80->doInstruction();
-
-  // Check for and handle interrupts
-  if (z80->interrupt_deferred > 0) {
-    z80->interrupt_deferred--;
-    if (z80->interrupt_deferred == 1) {
-      z80->interrupt_deferred = 0;
-      z80->FLAG_I = 1;
-    }
-  }
-  z80->checkForInterrupts();
-
-  // Check screen position and set video mode
-  // GameBoy runs ~61 instructions per row of the screen
-  horizontal = (totalInstructions + 1) % 61;
-  if (line >= 145)
-    gpuMode = V_BLANK;
-  else if (horizontal <= 30)
-    gpuMode = H_BLANK;
-  else if (31 <= horizontal && horizontal <= 40)
-    gpuMode = SPRITE;
-  else
-    gpuMode = VRAM;
-
-  if (horizontal == 0)
-    line++;
-  if (line == 144)
-    z80->throwInterrupt(1);
-  if (line % 154 == cmpLine && videoState & 0x40 != 0)
-    z80->throwInterrupt(2);
-  if (line == 153) {
-    line = 0;
-
-    // Redraw screen
-    // renderScreen();
-    readScreen();
-    // renderAsciiScreen();
-  }
-}
-
 gboolean timeoutUpdateScreen(gpointer sc) {
   GameBoyScreen* obj = (GameBoyScreen*)sc;
 
@@ -205,6 +163,54 @@ int main(int argc, char* argv[]) {
     emulator.join();
 
   return result;
+}
+
+void updateEmulator() {
+  z80->doInstruction();
+
+  // Check for and handle interrupts
+  if (z80->interrupt_deferred > 0) {
+    z80->interrupt_deferred--;
+    if (z80->interrupt_deferred == 1) {
+      z80->interrupt_deferred = 0;
+      z80->FLAG_I = 1;
+    }
+  }
+  z80->checkForInterrupts();
+
+  // Check screen position and set video mode
+  // GameBoy runs ~61 instructions per row of the screen
+  horizontal = (totalInstructions + 1) % 61;
+
+  if (line >= 145)
+    gpuMode = V_BLANK;
+  else if (horizontal <= 30)
+    gpuMode = H_BLANK;
+  else if (31 <= horizontal && horizontal <= 40)
+    gpuMode = SPRITE;
+  else
+    gpuMode = VRAM;
+
+  if (horizontal == 0) {
+    line++;
+
+    if (line == 144) {
+      printf("VBlank Interrupt thrown\n");
+      z80->throwInterrupt(1);
+    }
+    if (line % 154 == cmpLine && (videoState & 0x40) != 0) {
+      printf("LCD STAT Interrupt thrown\n");
+      z80->throwInterrupt(2);
+    }
+    if (line == 153) {
+      line = 0;
+
+      readScreen();
+      // renderAsciiScreen();
+    }
+  }
+
+  totalInstructions++;
 }
 
 unsigned char memoryRead(int address) {
