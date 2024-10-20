@@ -1,8 +1,5 @@
 // Margaret Black, 2024
 
-#define TRUE 1
-#define FALSE 0
-
 class Z80 {
  public:
   int A, B, C, D, E, H, L, SP, PC;

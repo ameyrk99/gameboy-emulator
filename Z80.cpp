@@ -2,6 +2,9 @@
 
 #include "Z80.h"
 
+const int TRUE = 1;
+const int FALSE = 0;
+
 Z80::Z80(unsigned char (*read)(int), void (*write)(int, unsigned char)) {
   memory_read = read;
   memory_write = write;
