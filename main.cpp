@@ -1,6 +1,8 @@
 #include <stdio.h>
+#include <atomic>
 #include <fstream>
 #include <iostream>
+#include <thread>
 
 #include <gdkmm/general.h>
 #include <gtkmm/application.h>
@@ -8,12 +10,15 @@
 #include <gtkmm/drawingarea.h>
 #include <gtkmm/window.h>
 
+#include <glibmm/main.h>
 #include "Z80.h"
 
 using namespace std;
 
 const int SCREEN_W = 160, SCREEN_H = 144;
 const int TILE_MAP_0_ADDRESS = 0x1800, TILE_MAP_1_ADDRESS = 0x1c00;
+// A char representation of GameBoy in increasing degree of opacity
+const char* PIXEL_REPRESENTATION[] = {" ", ".", "+", "*"};
 
 // From Step 1; No longer used
 // int rom[] = {0x06, 0x06, 0x3e, 0x00, 0x80, 0x05, 0xc2, 0x04, 0x00, 0x76};
@@ -21,30 +26,41 @@ const int TILE_MAP_0_ADDRESS = 0x1800, TILE_MAP_1_ADDRESS = 0x1c00;
 Z80* z80;
 char* rom;
 int romSize;
-// A char representation of GameBoy in increasing degree of opacity
-const char* PIXEL_REPRESENTATION[] = {" ", ".", "+", "*"};
 
 unsigned char graphicsRAM[8192];
+unsigned char workingRAM[0x2000];
+unsigned char page0RAM[0x80];
 int palette[4];
 int tileSet, tileMap, scrollX, scrollY;
-int Screen[SCREEN_W][SCREEN_H];
+int Screen[SCREEN_W][SCREEN_H] = {{0}};  // 0 to 3 pixel values
+int H_BLANK = 0, V_BLANK = 1, SPRITE = 2, VRAM = 3;
+int line = 0, cmpLine = 0, videoState = 0, keyboardColumn = 0, horizontal = 0;
+int gpuMode = H_BLANK;
+int romOffset = 0x4000;
+long totalInstructions = 0;
 
-unsigned char memoryRead(int address) {
-  return rom[address];
-}
+/* -------------------------------------------------------------------------- */
+// Function Definitions
+void setControlByte(unsigned char b);
+void setPalette(unsigned char b);
+unsigned char getVideoState();
 
-void memoryWrite(int address, unsigned char value) {}
+unsigned char memoryRead(int address);
+void memoryWrite(int address, unsigned char value);
+
+void readScreen();
+void renderAsciiScreen();
 
 class GameBoyScreen : public Gtk::DrawingArea {
  public:
   // Init default screen
-  int Screen[SCREEN_W][SCREEN_H] = {{0}};  // 0 to 3 pixel values
+  int GbScreen[SCREEN_W][SCREEN_H] = {{0}};  // 0 to 3 pixel values
 
   /* Queue a redraw for the screen*/
-  void update_screen(int newScreen[SCREEN_W][SCREEN_H]) {
+  void update_screen() {
     for (int y = 0; y < SCREEN_H; ++y) {
       for (int x = 0; x < SCREEN_W; ++x) {
-        Screen[x][y] = newScreen[x][y];
+        GbScreen[x][y] = Screen[x][y];
       }
     }
 
@@ -57,8 +73,8 @@ class GameBoyScreen : public Gtk::DrawingArea {
     const int height = allocation.get_height();
 
     // Pixel size based off the window size
-    const double pixel_width = static_cast<double>(width) / SCREEN_W;
-    const double pixel_height = static_cast<double>(height) / SCREEN_H;
+    const double pixelWidth = static_cast<double>(width) / SCREEN_W;
+    const double pixelHeight = static_cast<double>(height) / SCREEN_H;
 
     // Define the 4 shades for GameBoy screen
     // Grayscale
@@ -78,23 +94,173 @@ class GameBoyScreen : public Gtk::DrawingArea {
 
     for (int y = 0; y < SCREEN_H; ++y) {
       for (int x = 0; x < SCREEN_W; ++x) {
-        int pixel_value = Screen[x][y];
-        // printf("%s", PIXEL_REPRESENTATION[pixel_value]);
+        int pixel_value = GbScreen[x][y];
 
         auto [r, g, b] = colors[pixel_value];
         // Set the fill color
         cr->set_source_rgb(r, g, b);
         // Draw the rectangle for pixel
-        cr->rectangle(x * pixel_width, y * pixel_height, pixel_width,
-                      pixel_height);
+        cr->rectangle(x * pixelWidth, y * pixelHeight, pixelWidth, pixelHeight);
         cr->fill();
       }
-      //   printf("\n");
     }
 
     return true;
   }
 };
+
+void updateEmulator() {
+  totalInstructions++;
+
+  z80->doInstruction();
+
+  // Check for and handle interrupts
+  if (z80->interrupt_deferred > 0) {
+    z80->interrupt_deferred--;
+    if (z80->interrupt_deferred == 1) {
+      z80->interrupt_deferred = 0;
+      z80->FLAG_I = 1;
+    }
+  }
+  z80->checkForInterrupts();
+
+  // Check screen position and set video mode
+  // GameBoy runs ~61 instructions per row of the screen
+  horizontal = (totalInstructions + 1) % 61;
+  if (line >= 145)
+    gpuMode = V_BLANK;
+  else if (horizontal <= 30)
+    gpuMode = H_BLANK;
+  else if (31 <= horizontal && horizontal <= 40)
+    gpuMode = SPRITE;
+  else
+    gpuMode = VRAM;
+
+  if (horizontal == 0)
+    line++;
+  if (line == 144)
+    z80->throwInterrupt(1);
+  if (line % 154 == cmpLine && videoState & 0x40 != 0)
+    z80->throwInterrupt(2);
+  if (line == 153) {
+    line = 0;
+
+    // Redraw screen
+    // renderScreen();
+    readScreen();
+    // renderAsciiScreen();
+  }
+}
+
+gboolean timeoutUpdateScreen(gpointer sc) {
+  GameBoyScreen* obj = (GameBoyScreen*)sc;
+
+  obj->update_screen();
+
+  // Continue loop
+  return true;
+}
+
+atomic<bool> running(true);
+void emulatorThread() {
+  while (running && !z80->halted) {
+    updateEmulator();
+  }
+}
+
+int main(int argc, char* argv[]) {
+  // --------------------------------------------------------------------------
+  // Graphical Setup
+  Glib::RefPtr<Gtk::Application> app =
+      Gtk::Application::create(argc, argv, "org.gtkmm.gameboy");
+
+  Gtk::Window win;
+  win.set_title("GameBoy Emulator");
+
+  GameBoyScreen screen;
+  win.add(screen);
+  screen.show();
+
+  ifstream romFile("opus5.gb", ios::in | ios::binary | ios::ate);
+  streampos size = romFile.tellg();
+
+  rom = new char[size];
+  romSize = size;
+  romFile.seekg(0, ios::beg);
+  romFile.read(rom, size);
+  romFile.close();
+
+  z80 = new Z80(memoryRead, memoryWrite);
+  z80->reset();
+
+  g_timeout_add(16, timeoutUpdateScreen, &screen);  // 16ms = ~60FPS
+
+  thread emulator(emulatorThread);
+
+  int result = app->run(win);
+
+  // Stop the emulator thread on exit
+  running = false;
+  if (emulator.joinable())
+    emulator.join();
+
+  return result;
+}
+
+unsigned char memoryRead(int address) {
+  if (0 <= address && address <= 0x3fff)
+    return rom[address];
+  else if (0x4000 <= address && address <= 0x7fff)
+    return rom[romOffset + address % 0x4000];
+  else if (0x8000 <= address && address < 0x9fff)
+    return graphicsRAM[address % 0x2000];
+  else if (0xc000 <= address && address < 0xdfff)
+    return workingRAM[address % 0x2000];
+  else if (0xff80 <= address && address < 0xffff)
+    return page0RAM[address % 0x80];
+  else if (address == 0xff00)
+    return 0xf;
+  else if (address == 0xff41)
+    return getVideoState();
+  else if (address == 0xff42)
+    return scrollY;
+  else if (address == 0xff43)
+    return scrollX;
+  else if (address == 0xff44)
+    return line;
+  else if (address == 0xff45)
+    return cmpLine;
+
+  // For anything else, we return 0
+  return 0;
+}
+
+void memoryWrite(int address, unsigned char value) {
+  if (0 <= address && address <= 0x7fff)
+    return;
+  else if (0x8000 <= address && address < 0x9fff)
+    graphicsRAM[address % 0x2000] = value;
+  else if (0xc000 <= address && address < 0xdfff)
+    workingRAM[address % 0x2000] = value;
+  else if (0xff80 <= address && address < 0xffff)
+    page0RAM[address % 0x80] = value;
+  else if (address == 0xff00)
+    keyboardColumn = value;
+  else if (address == 0xff40)
+    setControlByte(value);
+  else if (address == 0xff41)
+    videoState = value;
+  else if (address == 0xff42)
+    scrollY = value;
+  else if (address == 0xff43)
+    scrollX = value;
+  else if (address == 0xff44)
+    line = value;
+  else if (address == 0xff45)
+    cmpLine = value;
+  else if (address == 0xff47)
+    setPalette(value);
+}
 
 /*
 Sets colors on 4 grade palette and reads into Screen
@@ -141,64 +307,39 @@ void readScreen() {
   }
 }
 
-int main(int argc, char* argv[]) {
-  // setup(argc, argv)
-  Glib::RefPtr<Gtk::Application> app =
-      Gtk::Application::create(argc, argv, "org.gtkmm.example");
+void renderAsciiScreen() {
+  // Clear terminal
+  printf("\033c");
 
-  Gtk::Window win;
-  win.set_title("GameBoy Emu");
-
-  GameBoyScreen screen;
-  win.add(screen);
-  screen.show();
-
-  // --------------------------------------------------------------------------
-  // Step 1
-  ifstream romFile("testrom.gb", ios::in | ios::binary | ios::ate);
-  streampos size = romFile.tellg();
-
-  rom = new char[size];
-  romSize = size;
-  romFile.seekg(0, ios::beg);
-  romFile.read(rom, size);
-  romFile.close();
-
-  z80 = new Z80(memoryRead, memoryWrite);
-  z80->reset();
-
-  // Step 1: No longer used
-  //   z80->PC = 0;
-
-  while (!z80->halted) {
-    z80->doInstruction();
-    printf("PC=%x\tA=%d\tB=%d\n", z80->PC, z80->A, z80->B);
+  for (int y = 0; y < SCREEN_H; y++) {
+    for (int x = 0; x < SCREEN_W; x++) {
+      printf("%s", PIXEL_REPRESENTATION[Screen[x][y]]);
+    }
+    printf("\n");
   }
+}
 
-  // --------------------------------------------------------------------------
-  // Step 2
-  ifstream vidfile("screendump.txt", ios::in);
+void setControlByte(unsigned char b) {
+  tileMap = (b & 8) != 0 ? 1 : 0;
+  tileSet = (b & 16) != 0 ? 1 : 0;
+}
 
-  // Read first 8192 integers into graphics RAM
-  for (int i = 0; i < 8192; i++) {
-    int n;
-    vidfile >> n;
-    graphicsRAM[i] = (unsigned char)n;
-  }
+void setPalette(unsigned char b) {
+  palette[0] = b & 3;
+  palette[1] = (b >> 2) & 3;
+  palette[2] = (b >> 4) & 3;
+  palette[3] = (b >> 6) & 3;
+}
 
-  // Read rest of the variables
-  vidfile >> tileSet;
-  vidfile >> tileMap;
-  vidfile >> scrollX;
-  vidfile >> scrollY;
-  vidfile >> palette[0];
-  vidfile >> palette[1];
-  vidfile >> palette[2];
-  vidfile >> palette[3];
-
-  //   renderScreen();
-  readScreen();
-  screen.update_screen(Screen);
-
-  return app->run(win);
+unsigned char getVideoState() {
+  int by = 0;
+  if (line == cmpLine)
+    by |= 4;
+  if (gpuMode == V_BLANK)
+    by |= 1;
+  if (gpuMode == SPRITE)
+    by |= 2;
+  if (gpuMode == VRAM)
+    by |= 3;
+  return (unsigned char)((by | (videoState & 0xf8)) & 0xff);
 }
