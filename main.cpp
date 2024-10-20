@@ -61,30 +61,35 @@ class GameBoyScreen : public Gtk::DrawingArea {
     const double pixel_height = static_cast<double>(height) / SCREEN_H;
 
     // Define the 4 shades for GameBoy screen
+    // Grayscale
+    // const std::vector<std::tuple<double, double, double>> colors = {
+    //     {1.0, 1.0, 1.0},        // Off (white)
+    //     {0.75, 0.75, 0.75},     // 33% (light gray)
+    //     {0.375, 0.375, 0.375},  // 66% (dark gray)
+    //     {0.0, 0.0, 0.0}         // 100% (black)
+    // };
+    // Green tint (mimic GameBoy look)
     const std::vector<std::tuple<double, double, double>> colors = {
-        {255 / 255, 255 / 255, 255 / 255},  // Off (white)
-        {192 / 255, 192 / 255, 192 / 255},  // 33% (light gray)
-        {96 / 255, 96 / 255, 96 / 255},     // 66% (dark gray)
-        {0 / 255, 0 / 255, 0 / 255}         // 100% (black)
+        {0.88, 1.0, 0.88},   // Off (very light green, almost white)
+        {0.66, 0.85, 0.66},  // 33% (light green)
+        {0.33, 0.55, 0.33},  // 66% (darker green)
+        {0.0, 0.25, 0.0}     // 100% (very dark green, almost black)
     };
 
     for (int y = 0; y < SCREEN_H; ++y) {
       for (int x = 0; x < SCREEN_W; ++x) {
         int pixel_value = Screen[x][y];
-        // // Clamp the pixel_value to be between 0 and 3 just in case
-        // pixel_value = std::min(3, std::max(0, pixel_value));
-        printf("%s", PIXEL_REPRESENTATION[pixel_value]);
+        // printf("%s", PIXEL_REPRESENTATION[pixel_value]);
 
         auto [r, g, b] = colors[pixel_value];
-
         // Set the fill color
         cr->set_source_rgb(r, g, b);
-
         // Draw the rectangle for pixel
         cr->rectangle(x * pixel_width, y * pixel_height, pixel_width,
                       pixel_height);
         cr->fill();
       }
+      //   printf("\n");
     }
 
     return true;
