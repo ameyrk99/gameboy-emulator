@@ -127,7 +127,7 @@ gboolean timeoutUpdateScreen(gpointer sc) {
 
 atomic<bool> running(true);
 void emulatorThread() {
-  while (running && !z80->halted) {
+  while (running) {
     updateEmulator();
   }
 }
@@ -145,7 +145,7 @@ int main(int argc, char* argv[]) {
   win.add(screen);
   screen.show();
 
-  ifstream romFile("opus5.gb", ios::in | ios::binary | ios::ate);
+  ifstream romFile("tetris.gb", ios::in | ios::binary | ios::ate);
   streampos size = romFile.tellg();
 
   rom = new char[size];
@@ -162,6 +162,12 @@ int main(int argc, char* argv[]) {
   z80 = new Z80(memoryRead, memoryWrite);
   z80->reset();
 
+  // while (true) {
+  //   updateEmulator();
+  // }
+
+  // return 0;
+
   g_timeout_add(16, timeoutUpdateScreen, &screen);  // 16ms = ~60FPS
 
   thread emulator(emulatorThread);
@@ -177,7 +183,9 @@ int main(int argc, char* argv[]) {
 }
 
 void updateEmulator() {
-  z80->doInstruction();
+  if (!z80->halted) {
+    z80->doInstruction();
+  }
 
   // Check for and handle interrupts
   if (z80->interrupt_deferred > 0) {
@@ -214,7 +222,7 @@ void updateEmulator() {
       line = 0;
 
       readScreen();
-      // renderAsciiScreen();
+      renderAsciiScreen();
     }
   }
 

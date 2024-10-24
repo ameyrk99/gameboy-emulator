@@ -2,3 +2,4 @@
 gameboy
 build/
 .vscode/
+.DS_Store
