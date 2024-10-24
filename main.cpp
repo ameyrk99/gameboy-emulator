@@ -59,7 +59,7 @@ void updateEmulator();
 unsigned char memoryRead(int address);
 void memoryWrite(int address, unsigned char value);
 
-void readScreen();
+void readScreen(int pixelY);
 void renderAsciiScreen();
 
 class GameBoyScreen : public Gtk::DrawingArea {
@@ -137,10 +137,20 @@ void emulatorThread() {
 }
 
 int main(int argc, char* argv[]) {
+  if (argc != 2) {
+    printf("Incorrect execution. Use ./gameboy rom.gb\n");
+    exit(128);
+  }
+
+  // Need argc, argv for GTK but remove rom name
+  int newArgc = argc - 1;  // One argument will be removed
+  char** newArgv = new char*[newArgc];
+  newArgv[0] = argv[0];
+
   // --------------------------------------------------------------------------
   // Graphical Setup
   Glib::RefPtr<Gtk::Application> app =
-      Gtk::Application::create(argc, argv, "org.gtkmm.gameboy");
+      Gtk::Application::create(newArgc, newArgv, "org.gtkmm.gameboy");
 
   Gtk::Window win;
   win.set_title("GameBoy Emulator");
@@ -149,7 +159,8 @@ int main(int argc, char* argv[]) {
   win.add(screen);
   screen.show();
 
-  ifstream romFile("tetris.gb", ios::in | ios::binary | ios::ate);
+  // ifstream romFile("opus5.gb", ios::in | ios::binary | ios::ate);
+  ifstream romFile(argv[1], ios::in | ios::binary | ios::ate);
   streampos size = romFile.tellg();
 
   rom = new char[size];
@@ -221,14 +232,11 @@ void updateEmulator() {
       z80->throwInterrupt(1);
     if (line % 153 == cmpLine && (videoState & 0x40) != 0)
       z80->throwInterrupt(2);
-    if (line == 153) {
+    if (line == 153)
       line = 0;
-
-      // Temporary not supposed to sleep for 1 second;
-      //  But anything lower seems way too fast
-      usleep(1000);
-      readScreen();
-      // renderAsciiScreen();
+    if (line >= 0 && line < 144) {
+      usleep(TIMING_IN_MS);
+      readScreen(line);
     }
   }
 
@@ -313,45 +321,43 @@ void memoryWrite(int address, unsigned char value) {
 /*
 Sets colors on 4 grade palette and reads into Screen
 */
-void readScreen() {
+void readScreen(int pixelY) {
   for (int pixelX = 0; pixelX < SCREEN_W; pixelX++) {
-    for (int pixelY = 0; pixelY < SCREEN_H; pixelY++) {
-      int x = pixelX, y = pixelY;
+    int x = pixelX, y = pixelY;
 
-      // Apply scroll and wrap using bitmask
-      x = (x + scrollX) & 255;
-      y = (y + scrollY) & 255;
+    // Apply scroll and wrap using bitmask
+    x = (x + scrollX) & 255;
+    y = (y + scrollY) & 255;
 
-      int tileX = x / 8, tileY = y / 8;
-      int tilePosition = tileY * 32 + tileX;
-      int tileIndex = (tileMap == 0)
-                          ? graphicsRAM[TILE_MAP_0_ADDRESS + tilePosition]
-                          : graphicsRAM[TILE_MAP_1_ADDRESS + tilePosition];
+    int tileX = x / 8, tileY = y / 8;
+    int tilePosition = tileY * 32 + tileX;
+    int tileIndex = (tileMap == 0)
+                        ? graphicsRAM[TILE_MAP_0_ADDRESS + tilePosition]
+                        : graphicsRAM[TILE_MAP_1_ADDRESS + tilePosition];
 
-      // If tileSet is 0, tile indices are signed number with neg below
-      // 0x1000
-      int tileAddress;
-      if (tileSet == 1) {
-        tileAddress = tileIndex * 16;
-      } else {
-        if (tileIndex >= 128)
-          tileIndex -= 256;
-        tileAddress = tileIndex * 16 + 0x1000;
-      }
-
-      // Each 8x8 tile is encoded as 8 rows each consisting of 2 bytes
-      int offsetX = x % 8, offsetY = y % 8;
-      char byte0 = graphicsRAM[tileAddress + offsetY * 2];
-      char byte1 = graphicsRAM[tileAddress + offsetY * 2 + 1];
-
-      // Bit shift to right and AND to zero all bits except ones we
-      // want
-      char capturePixel0 = byte0 >> (7 - offsetX) & 1;
-      char capturePixel1 = byte1 >> (7 - offsetX) & 1;
-      int pixel = capturePixel1 * 2 + capturePixel0;
-
-      Screen[pixelX][pixelY] = palette[pixel];
+    // If tileSet is 0, tile indices are signed number with neg below
+    // 0x1000
+    int tileAddress;
+    if (tileSet == 1) {
+      tileAddress = tileIndex * 16;
+    } else {
+      if (tileIndex >= 128)
+        tileIndex -= 256;
+      tileAddress = tileIndex * 16 + 0x1000;
     }
+
+    // Each 8x8 tile is encoded as 8 rows each consisting of 2 bytes
+    int offsetX = x % 8, offsetY = y % 8;
+    char byte0 = graphicsRAM[tileAddress + offsetY * 2];
+    char byte1 = graphicsRAM[tileAddress + offsetY * 2 + 1];
+
+    // Bit shift to right and AND to zero all bits except ones we
+    // want
+    char capturePixel0 = byte0 >> (7 - offsetX) & 1;
+    char capturePixel1 = byte1 >> (7 - offsetX) & 1;
+    int pixel = capturePixel1 * 2 + capturePixel0;
+
+    Screen[pixelX][pixelY] = palette[pixel];
   }
 }
 
