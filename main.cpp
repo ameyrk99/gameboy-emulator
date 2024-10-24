@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <unistd.h>
 #include <atomic>
 #include <fstream>
 #include <iostream>
@@ -14,6 +15,9 @@
 #include "Z80.h"
 
 using namespace std;
+
+// Used to update screen for GTK and sleep for emulator
+const int TIMING_IN_MS = 16;
 
 const int SCREEN_W = 160, SCREEN_H = 144;
 const int TILE_MAP_0_ADDRESS = 0x1800, TILE_MAP_1_ADDRESS = 0x1c00;
@@ -168,7 +172,7 @@ int main(int argc, char* argv[]) {
 
   // return 0;
 
-  g_timeout_add(16, timeoutUpdateScreen, &screen);  // 16ms = ~60FPS
+  g_timeout_add(TIMING_IN_MS, timeoutUpdateScreen, &screen);  // 16ms = ~60FPS
 
   thread emulator(emulatorThread);
 
@@ -215,14 +219,16 @@ void updateEmulator() {
 
     if (line == 144)
       z80->throwInterrupt(1);
-
     if (line % 153 == cmpLine && (videoState & 0x40) != 0)
       z80->throwInterrupt(2);
     if (line == 153) {
       line = 0;
 
+      // Temporary not supposed to sleep for 1 second;
+      //  But anything lower seems way too fast
+      usleep(1000);
       readScreen();
-      renderAsciiScreen();
+      // renderAsciiScreen();
     }
   }
 
@@ -234,11 +240,11 @@ unsigned char memoryRead(int address) {
     return rom[address];
   else if (0x4000 <= address && address <= 0x7fff)
     return rom[romOffset + address % 0x4000];
-  else if (0x8000 <= address && address < 0x9fff)
+  else if (0x8000 <= address && address <= 0x9fff)
     return graphicsRAM[address % 0x2000];
-  else if (0xc000 <= address && address < 0xdfff)
+  else if (0xc000 <= address && address <= 0xdfff)
     return workingRAM[address % 0x2000];
-  else if (0xff80 <= address && address < 0xffff)
+  else if (0xff80 <= address && address <= 0xffff)
     return page0RAM[address % 0x80];
   else if (address == 0xff00)
     return 0xf;
@@ -280,11 +286,11 @@ void memoryWrite(int address, unsigned char value) {
 
   if (0 <= address && address <= 0x7fff)
     return;
-  else if (0x8000 <= address && address < 0x9fff)
+  else if (0x8000 <= address && address <= 0x9fff)
     graphicsRAM[address % 0x2000] = value;
-  else if (0xc000 <= address && address < 0xdfff)
+  else if (0xc000 <= address && address <= 0xdfff)
     workingRAM[address % 0x2000] = value;
-  else if (0xff80 <= address && address < 0xffff)
+  else if (0xff80 <= address && address <= 0xffff)
     page0RAM[address % 0x80] = value;
   else if (address == 0xff00)
     keyboardColumn = value;
