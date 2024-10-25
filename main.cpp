@@ -120,16 +120,16 @@ class GameBoyDrawingArea : public Gtk::DrawingArea {
             continue;
 
           int options = spriteRAM[spriteIter * 4 + 3];
-          if (options & 0x80 != 0)
+          if ((options & 0x80) != 0)
             continue;
 
           int sprTileNumber = spriteRAM[spriteIter * 4 + 2];
           int sprTileAddr = sprTileNumber * 16;
 
           int sprOffsetX = x - spriteX, sprOffsetY = y - spriteY;
-          if (options & 0x40 != 0)
+          if ((options & 0x40) != 0)
             sprOffsetY = 7 - sprOffsetY;
-          if (options & 0x20 != 0)
+          if ((options & 0x20) != 0)
             sprOffsetX = 7 - sprOffsetX;
 
           char sprByte0 = graphicsRAM[sprTileAddr + sprOffsetY * 2];
@@ -142,9 +142,8 @@ class GameBoyDrawingArea : public Gtk::DrawingArea {
           int sprPixel = sprCapturePixel1 * 2 + sprCapturePixel0;
 
           if (sprPixel != 0) {
-            pixelValue = (options & 0x10 == 0) ? objPalette0[sprPixel]
-                                               : objPalette1[sprPixel];
-            printf("PixelValue Sprite: %d\n", pixelValue);
+            pixelValue = ((options & 0x10) == 0) ? objPalette0[sprPixel]
+                                                 : objPalette1[sprPixel];
           }
         }
         auto [r, g, b] = colors[pixelValue];
@@ -257,8 +256,8 @@ class GameBoyWindow : public Gtk::Window {
 
  protected:
   bool onKeyPress(GdkEventKey* keyEvent) {
-    printf("[Press] Key: %s\tCode: %x\n", gdk_keyval_name(keyEvent->keyval),
-           keyEvent->hardware_keycode);
+    // printf("[Press] Key: %s\tCode: %x\n", gdk_keyval_name(keyEvent->keyval),
+    //        keyEvent->hardware_keycode);
 
     handleKeyDown(keyEvent->hardware_keycode);
     z80->throwInterrupt(0x10);
@@ -266,8 +265,9 @@ class GameBoyWindow : public Gtk::Window {
   }
 
   bool onKeyRelease(GdkEventKey* key_event) {
-    printf("[Release] Key: %s\tCode: %x\n", gdk_keyval_name(key_event->keyval),
-           key_event->hardware_keycode);
+    // printf("[Release] Key: %s\tCode: %x\n",
+    // gdk_keyval_name(key_event->keyval),
+    //        key_event->hardware_keycode);
 
     handleKeyUp(key_event->hardware_keycode);
     z80->throwInterrupt(0x10);
@@ -327,7 +327,7 @@ int main(int argc, char* argv[]) {
   z80 = new Z80(memoryRead, memoryWrite);
   z80->reset();
 
-  g_timeout_add(TIMING_IN_MS, timeoutUpdateScreen,
+  g_timeout_add(16, timeoutUpdateScreen,
                 &win.screen);  // 16ms = ~60FPS
 
   thread emulator(emulatorThread);
