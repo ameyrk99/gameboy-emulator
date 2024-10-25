@@ -34,7 +34,8 @@ int romSize;
 unsigned char graphicsRAM[8192];
 unsigned char workingRAM[0x2000];
 unsigned char page0RAM[0x80];
-int palette[4];
+unsigned char spriteRAM[0x100];
+int palette[4], objPalette0[4], objPalette1[4];
 int tileSet, tileMap, scrollX, scrollY;
 int Screen[SCREEN_W][SCREEN_H] = {{0}};  // 0 to 3 pixel values
 int H_BLANK = 0, V_BLANK = 1, SPRITE = 2, VRAM = 3;
@@ -55,7 +56,8 @@ int keyboardColumn = 0;
 /* -------------------------------------------------------------------------- */
 // Function Definitions
 void setControlByte(unsigned char b);
-void setPalette(unsigned char b);
+void dma(int address);
+void setPalette(int* pal, unsigned char b);
 unsigned char getVideoState();
 
 void updateEmulator();
@@ -108,9 +110,44 @@ class GameBoyDrawingArea : public Gtk::DrawingArea {
 
     for (int y = 0; y < SCREEN_H; ++y) {
       for (int x = 0; x < SCREEN_W; ++x) {
-        int pixel_value = GbScreen[x][y];
+        int pixelValue = GbScreen[x][y];
 
-        auto [r, g, b] = colors[pixel_value];
+        for (int spriteIter = 0; spriteIter < 40; spriteIter++) {
+          int spriteY = spriteRAM[spriteIter * 4 + 0] - 16;
+          int spriteX = spriteRAM[spriteIter * 4 + 1] - 8;
+          if (spriteX + 8 <= x || spriteX > x || spriteY + 8 <= y ||
+              spriteY > y)
+            continue;
+
+          int options = spriteRAM[spriteIter * 4 + 3];
+          if (options & 0x80 != 0)
+            continue;
+
+          int sprTileNumber = spriteRAM[spriteIter * 4 + 2];
+          int sprTileAddr = sprTileNumber * 16;
+
+          int sprOffsetX = x - spriteX, sprOffsetY = y - spriteY;
+          if (options & 0x40 != 0)
+            sprOffsetY = 7 - sprOffsetY;
+          if (options & 0x20 != 0)
+            sprOffsetX = 7 - sprOffsetX;
+
+          char sprByte0 = graphicsRAM[sprTileAddr + sprOffsetY * 2];
+          char sprByte1 = graphicsRAM[sprTileAddr + sprOffsetY * 2 + 1];
+
+          // Bit shift to right and AND to zero all bits except ones we
+          // want
+          char sprCapturePixel0 = sprByte0 >> (7 - sprOffsetX) & 1;
+          char sprCapturePixel1 = sprByte1 >> (7 - sprOffsetX) & 1;
+          int sprPixel = sprCapturePixel1 * 2 + sprCapturePixel0;
+
+          if (sprPixel != 0) {
+            pixelValue = (options & 0x10 == 0) ? objPalette0[sprPixel]
+                                               : objPalette1[sprPixel];
+            printf("PixelValue Sprite: %d\n", pixelValue);
+          }
+        }
+        auto [r, g, b] = colors[pixelValue];
         // Set the fill color
         cr->set_source_rgb(r, g, b);
         // Draw the rectangle for pixel
@@ -360,6 +397,8 @@ unsigned char memoryRead(int address) {
     return graphicsRAM[address % 0x2000];
   else if (0xc000 <= address && address <= 0xdfff)
     return workingRAM[address % 0x2000];
+  else if (0xfe00 <= address && address <= 0xfe9f)
+    return spriteRAM[address % 0x100];
   else if (0xff80 <= address && address <= 0xffff)
     return page0RAM[address % 0x80];
   else if (address == 0xff00) {
@@ -410,6 +449,8 @@ void memoryWrite(int address, unsigned char value) {
     graphicsRAM[address % 0x2000] = value;
   else if (0xc000 <= address && address <= 0xdfff)
     workingRAM[address % 0x2000] = value;
+  else if (0xfe00 <= address && address <= 0xfe9f)
+    spriteRAM[address % 0x100] = value;
   else if (0xff80 <= address && address <= 0xffff)
     page0RAM[address % 0x80] = value;
   else if (address == 0xff00)
@@ -426,8 +467,14 @@ void memoryWrite(int address, unsigned char value) {
     line = value;
   else if (address == 0xff45)
     cmpLine = value;
+  else if (address == 0xff46)
+    dma(value);
   else if (address == 0xff47)
-    setPalette(value);
+    setPalette(palette, value);
+  else if (address == 0xff48)
+    setPalette(objPalette0, value);
+  else if (address == 0xff49)
+    setPalette(objPalette1, value);
 }
 
 /*
@@ -485,16 +532,23 @@ void renderAsciiScreen() {
   }
 }
 
+void dma(int address) {
+  address = address << 8;
+  for (int i = 0; i < 0xa0; i++) {
+    memoryWrite(0xfe00 + i, memoryRead(address + i));
+  }
+}
+
 void setControlByte(unsigned char b) {
   tileMap = (b & 8) != 0 ? 1 : 0;
   tileSet = (b & 16) != 0 ? 1 : 0;
 }
 
-void setPalette(unsigned char b) {
-  palette[0] = b & 3;
-  palette[1] = (b >> 2) & 3;
-  palette[2] = (b >> 4) & 3;
-  palette[3] = (b >> 6) & 3;
+void setPalette(int* pal, unsigned char b) {
+  pal[0] = b & 3;
+  pal[1] = (b >> 2) & 3;
+  pal[2] = (b >> 4) & 3;
+  pal[3] = (b >> 6) & 3;
 }
 
 unsigned char getVideoState() {
