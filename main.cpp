@@ -38,7 +38,7 @@ int palette[4];
 int tileSet, tileMap, scrollX, scrollY;
 int Screen[SCREEN_W][SCREEN_H] = {{0}};  // 0 to 3 pixel values
 int H_BLANK = 0, V_BLANK = 1, SPRITE = 2, VRAM = 3;
-int line = 0, cmpLine = 0, videoState = 0, keyboardColumn = 0, horizontal = 0;
+int line = 0, cmpLine = 0, videoState = 0, horizontal = 0;
 int gpuMode = H_BLANK;
 int romOffset = 0x4000;
 long totalInstructions = 0;
@@ -48,6 +48,9 @@ int cartridgeType;
 int romSizeMask;
 int romSizeMaskList[] = {0x7fff,  0xffff,   0x1ffff,  0x3ffff, 0x7ffff,
                          0xfffff, 0x1fffff, 0x3fffff, 0x7fffff};
+
+int keys0 = 0xf, keys1 = 0xf;
+int keyboardColumn = 0;
 
 /* -------------------------------------------------------------------------- */
 // Function Definitions
@@ -62,7 +65,7 @@ void memoryWrite(int address, unsigned char value);
 void readScreen(int pixelY);
 void renderAsciiScreen();
 
-class GameBoyScreen : public Gtk::DrawingArea {
+class GameBoyDrawingArea : public Gtk::DrawingArea {
  public:
   // Init default screen
   int GbScreen[SCREEN_W][SCREEN_H] = {{0}};  // 0 to 3 pixel values
@@ -120,8 +123,123 @@ class GameBoyScreen : public Gtk::DrawingArea {
   }
 };
 
+enum KeyCodes {
+  KB_UP = 0x19,      // w
+  KB_LEFT = 0x26,    // a
+  KB_RIGHT = 0x28,   // d
+  KB_DOWN = 0x27,    // s
+  KB_SELECT = 0x2b,  // h
+  KB_START = 0x2e,   // l
+  KB_A = 0x39,       // n
+  KB_B = 0x3a        // m
+};
+
+void handleKeyDown(int keyCode) {
+  switch (keyCode) {
+    case KB_RIGHT:
+      keys1 &= 0xe;
+      break;
+    case KB_LEFT:
+      keys1 &= 0xd;
+      break;
+    case KB_UP:
+      keys1 &= 0xb;
+      break;
+    case KB_DOWN:
+      keys1 &= 0x7;
+      break;
+    case KB_A:
+      keys0 &= 0xe;
+      break;
+    case KB_B:
+      keys0 &= 0xd;
+      break;
+    case KB_SELECT:
+      keys0 &= 0xb;
+      break;
+    case KB_START:
+      keys0 &= 0x7;
+      break;
+    default:
+      // printf("Invalid keycode: 0x%x", keyCode);
+      break;
+  }
+}
+
+void handleKeyUp(int keyCode) {
+  switch (keyCode) {
+    case KB_RIGHT:
+      keys1 |= 1;
+      break;
+    case KB_LEFT:
+      keys1 |= 2;
+      break;
+    case KB_UP:
+      keys1 |= 4;
+      break;
+    case KB_DOWN:
+      keys1 |= 8;
+      break;
+    case KB_A:
+      keys0 |= 1;
+      break;
+    case KB_B:
+      keys0 |= 2;
+      break;
+    case KB_SELECT:
+      keys0 |= 4;
+      break;
+    case KB_START:
+      keys0 |= 8;
+      break;
+    default:
+      // printf("Invalid keycode: 0x%x", keyCode);
+      break;
+  }
+}
+
+class GameBoyWindow : public Gtk::Window {
+ public:
+  GameBoyDrawingArea screen;
+
+  GameBoyWindow() {
+    set_title("GameBoy Emulator");
+    add(screen);
+
+    // Set the event mask to capture key press and release events
+    add_events(Gdk::KEY_PRESS_MASK | Gdk::KEY_RELEASE_MASK);
+
+    // Connect signal handlers
+    signal_key_press_event().connect(
+        sigc::mem_fun(*this, &GameBoyWindow::onKeyPress));
+    signal_key_release_event().connect(
+        sigc::mem_fun(*this, &GameBoyWindow::onKeyRelease));
+
+    screen.show();
+  }
+
+ protected:
+  bool onKeyPress(GdkEventKey* keyEvent) {
+    printf("[Press] Key: %s\tCode: %x\n", gdk_keyval_name(keyEvent->keyval),
+           keyEvent->hardware_keycode);
+
+    handleKeyDown(keyEvent->hardware_keycode);
+    z80->throwInterrupt(0x10);
+    return false;
+  }
+
+  bool onKeyRelease(GdkEventKey* key_event) {
+    printf("[Release] Key: %s\tCode: %x\n", gdk_keyval_name(key_event->keyval),
+           key_event->hardware_keycode);
+
+    handleKeyUp(key_event->hardware_keycode);
+    z80->throwInterrupt(0x10);
+    return false;
+  }
+};
+
 gboolean timeoutUpdateScreen(gpointer sc) {
-  GameBoyScreen* obj = (GameBoyScreen*)sc;
+  GameBoyDrawingArea* obj = (GameBoyDrawingArea*)sc;
 
   obj->update_screen();
 
@@ -152,12 +270,7 @@ int main(int argc, char* argv[]) {
   Glib::RefPtr<Gtk::Application> app =
       Gtk::Application::create(newArgc, newArgv, "org.gtkmm.gameboy");
 
-  Gtk::Window win;
-  win.set_title("GameBoy Emulator");
-
-  GameBoyScreen screen;
-  win.add(screen);
-  screen.show();
+  GameBoyWindow win;
 
   // ifstream romFile("opus5.gb", ios::in | ios::binary | ios::ate);
   ifstream romFile(argv[1], ios::in | ios::binary | ios::ate);
@@ -177,13 +290,8 @@ int main(int argc, char* argv[]) {
   z80 = new Z80(memoryRead, memoryWrite);
   z80->reset();
 
-  // while (true) {
-  //   updateEmulator();
-  // }
-
-  // return 0;
-
-  g_timeout_add(TIMING_IN_MS, timeoutUpdateScreen, &screen);  // 16ms = ~60FPS
+  g_timeout_add(TIMING_IN_MS, timeoutUpdateScreen,
+                &win.screen);  // 16ms = ~60FPS
 
   thread emulator(emulatorThread);
 
@@ -254,9 +362,13 @@ unsigned char memoryRead(int address) {
     return workingRAM[address % 0x2000];
   else if (0xff80 <= address && address <= 0xffff)
     return page0RAM[address % 0x80];
-  else if (address == 0xff00)
-    return 0xf;
-  else if (address == 0xff41)
+  else if (address == 0xff00) {
+    if ((keyboardColumn & 0x30) == 0x10) {
+      return keys0;
+    } else {
+      return keys1;
+    }
+  } else if (address == 0xff41)
     return getVideoState();
   else if (address == 0xff42)
     return scrollY;
