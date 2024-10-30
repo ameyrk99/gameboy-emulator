@@ -126,14 +126,14 @@ class GameBoyDrawingArea : public Gtk::DrawingArea {
 // Keycode defs for my two computers
 #ifdef __APPLE__  // For macOS
 enum KeyCodes {
-  KB_UP = 0x1a,      // w
-  KB_LEFT = 0x24,    // a
-  KB_RIGHT = 0x27,   // d
-  KB_DOWN = 0x25,    // s
-  KB_SELECT = 0x2c,  // h
-  KB_START = 0x2f,   // l
-  KB_A = 0x3b,       // n
-  KB_B = 0x3c        // m
+  KB_UP = 0x0d,      // w
+  KB_LEFT = 0x00,    // a
+  KB_RIGHT = 0x02,   // d
+  KB_DOWN = 0x01,    // s
+  KB_SELECT = 0x04,  // h
+  KB_START = 0x25,   // l
+  KB_A = 0x2d,       // n
+  KB_B = 0x2e        // m
 };
 #elif __linux__  // For Linux
 enum KeyCodes {
@@ -236,7 +236,8 @@ class GameBoyWindow : public Gtk::Window {
 
  protected:
   bool onKeyPress(GdkEventKey* keyEvent) {
-    // printf("[Press] Key: %s\tCode: %x\n", gdk_keyval_name(keyEvent->keyval),
+    // printf("[Press] Key: %s\tCode: 0x%2x\n",
+    // gdk_keyval_name(keyEvent->keyval),
     //        keyEvent->hardware_keycode);
 
     handleKeyDown(keyEvent->hardware_keycode);
@@ -245,9 +246,8 @@ class GameBoyWindow : public Gtk::Window {
   }
 
   bool onKeyRelease(GdkEventKey* key_event) {
-    // printf("[Release] Key: %s\tCode: %x\n",
-    // gdk_keyval_name(key_event->keyval),
-    //        key_event->hardware_keycode);
+    // printf("[Release] Key: %s\tCode: 0x%2x\n",
+    //        gdk_keyval_name(key_event->keyval), key_event->hardware_keycode);
 
     handleKeyUp(key_event->hardware_keycode);
     z80->throwInterrupt(0x10);
@@ -307,7 +307,7 @@ int main(int argc, char* argv[]) {
   z80 = new Z80(memoryRead, memoryWrite);
   z80->reset();
 
-  g_timeout_add(16, timeoutUpdateScreen,
+  g_timeout_add(TIMING_IN_MS, timeoutUpdateScreen,
                 &win.screen);  // 16ms = ~60FPS
 
   thread emulator(emulatorThread);
