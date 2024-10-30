@@ -17,7 +17,7 @@
 using namespace std;
 
 // Used to update screen for GTK and sleep for emulator
-const int TIMING_IN_MS = 16;
+const int SCREEN_REFRESH_IN_MS = 16, EMULATOR_UPDATE_IN_MS = 32;
 
 const int SCREEN_W = 160, SCREEN_H = 144;
 const int TILE_MAP_0_ADDRESS = 0x1800, TILE_MAP_1_ADDRESS = 0x1c00;
@@ -41,9 +41,7 @@ int gpuMode = H_BLANK;
 int romOffset = 0x4000;
 long totalInstructions = 0;
 
-int romBank = 0;
-int cartridgeType;
-int romSizeMask;
+int romBank, cartridgeType, romSizeMask;
 int romSizeMaskList[] = {0x7fff,  0xffff,   0x1ffff,  0x3ffff, 0x7ffff,
                          0xfffff, 0x1fffff, 0x3fffff, 0x7fffff};
 
@@ -299,7 +297,6 @@ int main(int argc, char* argv[]) {
   romFile.read(rom, size);
   romFile.close();
 
-  // Step 4
   romBank = 0;
   cartridgeType = rom[0x147] & 3;
   romSizeMask = romSizeMaskList[rom[0x148]];
@@ -307,7 +304,7 @@ int main(int argc, char* argv[]) {
   z80 = new Z80(memoryRead, memoryWrite);
   z80->reset();
 
-  g_timeout_add(TIMING_IN_MS, timeoutUpdateScreen,
+  g_timeout_add(SCREEN_REFRESH_IN_MS, timeoutUpdateScreen,
                 &win.screen);  // 16ms = ~60FPS
 
   thread emulator(emulatorThread);
@@ -396,8 +393,8 @@ void updateEmulator() {
     if (line == 153)
       line = 0;
     if (line >= 0 && line < 144) {
-      usleep(TIMING_IN_MS);
       readScreen(line);
+      usleep(EMULATOR_UPDATE_IN_MS);
     }
   }
 

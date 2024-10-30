@@ -1,6 +1,7 @@
 # GameBoy Emulator
 
 ### Files included:
+- `CMakeLists.txt`
 - `gameboy.cpp`
 - `z80.cpp`
 - `z80.h`
@@ -16,3 +17,34 @@ I followed the instructions while refactoring or tweaking the code as necessary 
 I also got all the parts working and was able to play several ROMs such as:
 - Opus5: correctly moves the spaceship around (or updates the background to give that illusion)
 - Mario Super Land: plays mario but I couldn't make the first checkpoint; Not good at platformers
+
+### How to build
+
+Configure project
+```sh
+cmake -DCMAKE_BUILD_TYPE:STRING=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -DCMAKE_C_COMPILER:FILEPATH=/usr/bin/clang -DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/clang++ --no-warn-unused-cli -S${SOURCE_DIR} -B${BUILD_DIR} -G "Unix Makefiles"
+```
+
+Build
+```sh
+cmake --build ${BUILD_DIR} --config Debug --target all -j 10
+```
+
+Run
+```sh
+cd build
+./gameboy ${PATH_TO_ROM}
+```
+
+Example:
+```sh
+# Configure
+cmake -DCMAKE_BUILD_TYPE:STRING=Debug -DCMAKE_EXPORT_COMPILE_COMMANDS:BOOL=TRUE -DCMAKE_C_COMPILER:FILEPATH=/usr/bin/clang -DCMAKE_CXX_COMPILER:FILEPATH=/usr/bin/clang++ --no-warn-unused-cli -S/Users/ameyrk/Code/gameboy-emulator -B/Users/ameyrk/Code/gameboy-emulator/build -G "Unix Makefiles"
+
+# Build
+cmake --build /Users/ameyrk/Code/gameboy-emulator/build --config Debug --target all -j 10
+
+# Run
+cd build
+./gameboy ../opus5.gb
+```
