@@ -8,7 +8,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 find_package(PkgConfig REQUIRED)
 pkg_check_modules(GTKMM REQUIRED gtkmm-3.0)
 
-add_executable(gameboy main.cpp Z80.cpp)
+add_executable(gameboy gameboy.cpp Z80.cpp)
 
 # Add other flags to the compiler
 target_compile_options(gameboy PRIVATE ${GTKMM_CFLAGS_OTHER})
